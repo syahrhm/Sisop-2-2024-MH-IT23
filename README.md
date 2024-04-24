@@ -37,6 +37,177 @@ Jika melanggar struktur repo akan dianggap sama dengan curang dan menerima konse
         9. Jika terdapat revisi soal akan dituliskan pada halaman terakhir
 
 
+### SOAL 1 
+
+- Input Path:
+Program harus dapat menerima input berupa lokasi direktori (argv) yang menentukan folder di mana file-file akan dieksekusi atau dipindai.
+- Replace String:
+Program harus mencari dan mengganti string tertentu dalam file dengan string lainnya sesuai aturan berikut:
+1. String "m4LwAr3" diganti dengan "[MALWARE]"
+2. String "5pYw4R3" diganti dengan "[SPYWARE]"
+3. String "R4nS0mWaR3" diganti dengan "[RANSOMWARE]"
+- Daemon Process:
+Program harus berjalan sebagai daemon, yang berarti ia beroperasi di background secara terus-menerus tanpa intervensi pengguna.
+- Tanpa Command system():
+Dalam pembuatan program, tidak diizinkan menggunakan command system() yang sering digunakan untuk menjalankan perintah shell.
+- Interval Waktu:
+Program harus memiliki jeda operasi selama 15 detik antara setiap eksekusi tugasnya.
+- Logging:
+Program harus mencatat setiap penggantian string yang berhasil dilakukan dalam file dengan nama "virus.log" dan dengan format catatan log yang spesifik: [dd-mm-YYYY][HH:MM:SS] Suspicious string at <file_name> successfully replaced!
+
+1.  Kode ini mencari tiga string spesifik dalam file ("m4LwAr3", "5pYw4R3", "R4nS0mWaR3") dan menggantinya dengan string yang lebih jelas menunjukkan jenis malware ("[MALWARE]", "[SPYWARE]", "[RANSOMWARE]"). Fungsi replaceStringInFile bertanggung jawab untuk membuka file, mencari dan mengganti string, serta menulis kembali isi yang sudah diubah ke dalam file yang sama.
+   
+// Function to perform string replacement in a file
+void replaceStringInFile(const char *filePath, const char *searchString, const char *replaceString) {
+    FILE *file = fopen(filePath, "r+");
+    if (file == NULL) {
+        perror("Error opening file");
+        return;
+    }
+
+    size_t searchLen = strlen(searchString);
+    size_t replaceLen = strlen(replaceString);
+
+    // Allocate memory for a temporary buffer to store the file contents
+    char fileContent[MAX_FILE_LENGTH];
+    char *tempBuffer = malloc(MAX_FILE_LENGTH);
+    if (tempBuffer == NULL) {
+        fclose(file);
+        perror("Memory allocation failed");
+        return;
+    }
+
+    // Read the file content into memory
+    size_t bytesRead = fread(fileContent, 1, MAX_FILE_LENGTH, file);
+    if (bytesRead == 0) {
+        fclose(file);
+        free(tempBuffer);
+        perror("Error reading file");
+        return;
+    }
+
+    // Perform string replacement
+    char *ptr = fileContent;
+    while ((ptr = strstr(ptr, searchString)) != NULL) {
+        // Calculate the position of the found string
+        size_t pos = ptr - fileContent;
+        // Copy the content before the found string to the temporary buffer
+        memcpy(tempBuffer, fileContent, pos);
+        // Copy the replacement string to the temporary buffer
+        memcpy(tempBuffer + pos, replaceString, replaceLen);
+        // Copy the remaining content after the found string to the temporary buffer
+        memcpy(tempBuffer + pos + replaceLen, ptr + searchLen, bytesRead - (pos + searchLen));
+        // Copy the modified content back to the fileContent buffer
+        memcpy(fileContent, tempBuffer, bytesRead);
+        // Move the pointer past the replaced string
+        ptr += replaceLen;
+    }
+
+    // Truncate the file to remove the old content
+    ftruncate(fileno(file), 0);
+    // Move the file pointer to the beginning
+    fseek(file, 0, SEEK_SET);
+    // Write the modified content back to the file
+    fwrite(fileContent, 1, bytesRead, file);
+
+    // Cleanup
+    fclose(file);
+    free(tempBuffer);
+}
+
+2. Setiap kali string berhasil diganti dalam file, fungsi logReplacement mencatat aksi tersebut dalam file "virus.log" dengan timestamp dan nama file yang dimodifikasi.
+   
+// Function to log string replacements in virus.log file
+void logReplacement(const char *fileName) {
+    time_t now;
+    struct tm *timeinfo;
+    char timestamp[20];
+    time(&now);
+    timeinfo = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "[%d-%m-%Y][%H:%M:%S]", timeinfo);
+
+    // Open virus.log in append mode
+    FILE *logFile = fopen(LOG_FILE, "a");
+    if (logFile == NULL) {
+        perror("Error opening log file");
+        return;
+    }
+
+    fprintf(logFile, "%s Suspicious string at %s successfully replaced!\n", timestamp, fileName);
+    fclose(logFile);
+}
+
+3. Main : 
+- Program membuka direktori yang ditunjukkan oleh argumen yang diberikan.
+- Melakukan penggantian string pada setiap file reguler (selain file dengan ekstensi .c untuk menghindari modifikasi kode sumber).
+- Mencatat penggantian string ke log.
+- Daemon mengambil alih, program akan berpindah ke direktori root, menutup file descriptor standar (stdin, stdout, stderr), dan berjalan di latar belakang.
+  
+int main(int argc, char *argv[]) {
+    // Ensure correct command line arguments
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <folder_path>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    // Perform string replacement in files within the specified folder
+    DIR *dir;
+    struct dirent *entry;
+    dir = opendir(argv[1]);
+    if (dir == NULL) {
+        perror("Error opening directory");
+        return EXIT_FAILURE;
+    }
+
+    char filePath[MAX_PATH_LENGTH];
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG && !strstr(entry->d_name, ".c")) { // Skip .c files
+            snprintf(filePath, sizeof(filePath), "%s/%s", argv[1], entry->d_name);
+            replaceStringInFile(filePath, "m4LwAr3", "[MALWARE]");
+            replaceStringInFile(filePath, "5pYw4R3", "[SPYWARE]");
+            replaceStringInFile(filePath, "R4nS0mWaR3", "[RANSOMWARE]");
+            logReplacement(entry->d_name);
+        }
+    }
+    closedir(dir);
+
+4. Setelah menjadi daemon, program tidak melakukan aktivitas tambahan dalam loopnya, hanya tidur selama 15 detik antar iterasi. 
+   
+    // Implement daemon
+    pid_t pid, sid;
+    pid = fork();
+    if (pid < 0) {
+        exit(EXIT_FAILURE);
+    }
+    if (pid > 0) {
+        exit(EXIT_SUCCESS);
+    }
+    umask(0);
+    sid = setsid();
+    if (sid < 0) {
+        exit(EXIT_FAILURE);
+    }
+    if ((chdir("/")) < 0) {
+        exit(EXIT_FAILURE);
+    }
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    // Main loop to run the program as a daemon with a 15-second interval
+    while (1) {
+        // Tasks to be performed in the main loop go here
+        sleep(15); // Wait for 15 seconds
+    }
+
+    return EXIT_SUCCESS;
+}
+
+### Dokumentasi 
+![WhatsApp Image 2024-04-20 at 22 16 51](https://github.com/Aceeen/Sisop-2-2024-MH-IT23/assets/151058945/a7edd44f-3cc0-4848-8e17-4030816effff)
+
+![WhatsApp Image 2024-04-20 at 22 17 24](https://github.com/Aceeen/Sisop-2-2024-MH-IT23/assets/151058945/34012a4c-6d4d-4a78-adb4-ba3afda55e9b)
+
 
 ### SOAL 2
 Program manajemen file <br />
